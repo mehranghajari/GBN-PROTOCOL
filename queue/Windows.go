@@ -57,3 +57,6 @@ func (s *Windows) IsFull() bool{
 	return s.elementsNumber == s.size
 
 }
+func (s *Windows) GetArray() []string {
+	return s.items
+}

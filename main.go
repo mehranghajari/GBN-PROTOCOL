@@ -21,6 +21,8 @@ var (
 	clientColor  = color.New(color.FgHiYellow)
 	ackColor     = color.New(color.FgHiGreen)
 	timeoutColor = color.New(color.FgHiRed)
+	timerFlag  = false
+	timeout = false
 )
 
 func server(windows int, data chan []byte, ack chan bool, ackNumber chan int, done chan bool) {
@@ -41,8 +43,6 @@ func server(windows int, data chan []byte, ack chan bool, ackNumber chan int, do
 	// Timer
 	timer := time.NewTimer(4 * time.Second)
 	timer.Stop()
-
-	timeout := 0
 
 	waiting := 0
 	for len(messageInByte) != 0 || waiting != 0 {
@@ -70,33 +70,33 @@ func server(windows int, data chan []byte, ack chan bool, ackNumber chan int, do
 		}
 		select {
 		case <-ack:
-			base = <-ackNumber
+			base = <-ackNumber + 1
 			waiting--
-			timeout = 0
 			w.Dequeue()
 			if base == nextFrame {
+				fmt.Println("EQ")
+				timerFlag = false
 				timer.Stop()
 			} else {
-				timer.Reset(1 * time.Second)
-				go func() {
-					<-timer.C
-					fmt.Println("Timout")
-					if !w.IsEmpty(){
-						sendWindows(&w, data)
-					}
-				}()
+				if !timerFlag {
+					timer.Reset(1 * time.Second)
+					go func() {
+						<-timer.C
+						timeout = true
+					}()
+					timerFlag = true
+				}
 			}
 		default:
-			if timeout == 3 {
-				sendWindows(&w, data)
-				timeout = 0
-			}
-			fmt.Println("Timeout")
-			timeout++
-			print(timeout)
 			time.Sleep(1 * time.Second)
+			timeoutColor.Println("No ack")
 
 		}
+		for _, v:= range w.GetArray() {
+			println("Again: " + v)
+			data <- []byte(v)
+		}
+
 
 	}
 	close(data)
@@ -104,52 +104,18 @@ func server(windows int, data chan []byte, ack chan bool, ackNumber chan int, do
 	done <- true
 }
 
-
 func sendWindows(w *queue.Windows, data chan []byte) {
 	var buffer []byte
 	fmt.Println("Sending Windows ")
 	for !w.IsEmpty() {
 		buffer = w.Dequeue()
-		fmt.Println(string(buffer))
 		data <- buffer
+		w.Enqueue(buffer)
+
 	}
 	fmt.Println("End of Sending Windows")
 
 }
-func client(windows int, data chan []byte, ack chan bool, ackNumber chan int) {
-	failed := 0
-	nextFrame := 0
-	for failed < 5{
-		select {
-		case message := <-data:
-			failed = 0
-			if nextFrame == int(message[len(message)-1]) {
-				nextFrame++
-				if len(message) != 0 {
-
-					if len(message) > 2 {
-						serverColor.Println("Receiver:	Frame", int(message[len(message)-1])%windows, " Received:", string(message[0:len(message)-1]), time.Now())
-					} else {
-						serverColor.Println("Receiver:	Frame", int(message[1])%windows, "Received", string(message[0]), time.Now())
-					}
-						fmt.Println("Ack Sent")
-						ack <- true
-						time.Sleep(time.Duration(propagation) * time.Millisecond)
-						ackNumber <- int(message[len(message)-1]) + 1
-
-				}
-			}
-
-		default:
-			timeoutColor.Printf("Reciever:\n\tNo Message\n")
-			failed++
-			time.Sleep(1 * time.Second)
-		}
-
-	}
-
-}
-
 
 func createFrame(message []byte, fs int) []byte {
 	buffer := make([]byte, fs)
