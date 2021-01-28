@@ -1,50 +1,43 @@
 package main
 
 import (
-	"math/rand"
+	"fmt"
 	"time"
 )
 
-func client(windows int, data chan []byte, ack chan bool, ackNumber chan int) {
-	failed := 0
+func client(windows int, data chan []byte, ackNumber chan int) {
 	nextFrame := 0
-	for failed < 5 {
+	failed := 0
+
+	end :=0
+	for {
 		select {
 		case message := <-data:
-			if len(message)== 0 {
-				continue
-			}
-			failed = 0
 			if nextFrame == int(message[len(message)-1]) {
-				nextFrame++
 				if len(message) != 0 {
+					end = 0
+					serverColor.Println("Receiver:	Frame", nextFrame%windows, " Received:", string(message[0:len(message)-1]), time.Now())
 
-					if len(message) > 2 {
-						serverColor.Println("Receiver:	Frame", int(message[len(message)-1])%windows, " Received:", string(message[0:len(message)-1]), time.Now())
-					} else {
-						serverColor.Println("Receiver:	Frame", int(message[1])%windows, "Received", string(message[0]), time.Now())
-					}
-					p := rand.Float64()
-					if p > 0.8 {
-						ack <- true
 						time.Sleep(time.Duration(propagation) * time.Millisecond)
-						ackNumber <- int(message[len(message)-1]) +1
-					} else {
-						println("Bad ACK")
-						ack <- true
-						time.Sleep(time.Duration(propagation) * time.Millisecond)
-						ackNumber <- int(message[len(message)-1]) - 1
-					}
+						ackNumber <- nextFrame
+						nextFrame++
+
 
 				}
-			} else {
-				ack <- true
-				ackNumber <- nextFrame - 1
-			}
 
+			}
 		default:
-			timeoutColor.Printf("Reciever:\n\tNo Message\n")
 			failed++
+			if failed > 5 {
+				ackNumber <- nextFrame - 1
+				fmt.Println("Send Ack")
+				failed = 0
+				end++
+			}
+			if end > 2 {
+				wg.Done()
+			}
+			timeoutColor.Printf("Reciever:\n\tNo Message\n")
 			time.Sleep(1 * time.Second)
 		}
 
