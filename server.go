@@ -1,134 +1,53 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
-	"github.com/emirpasic/gods/lists/arraylist"
 	"time"
-	"fmt"
 )
 
-func server(windows int, data chan []byte, ackNumber chan int, done chan bool) {
-
-	// Declare a base var and next frame
-	base := 0
+// server receives message from client and sends frame's ack back.
+func server(windows int, data chan []byte, ackNumber chan int) {
 	nextFrame := 0
+	failed := 0
 
-	// Timer
-	timer := time.NewTimer(4 * time.Second)
-	timer.Stop()
+	end := 0
 
-	frameList := createArrayOfFrames(fs)
-	var buf bytes.Buffer
-	count := 0
-	for count < frameList.Size() {
-		if nextFrame < base+windows && timeout != true {
+	// A while statement to listen on link ---> non-blocking
+	for {
+		// Implement non-blocking mode on channel.
+		select {
+		// Received Data
+		case message := <-data:
+			if nextFrame == int(message[len(message)-1]) {
+				if len(message) != 0 {
+					end = 0
+					_, _ = serverColor.Println("Receiver:	Frame", nextFrame%windows, " Received:", string(message[0:len(message)-1]), time.Now())
+					time.Sleep(time.Duration(propagation) * time.Millisecond)
+					ackNumber <- nextFrame
+					nextFrame++
 
-			sendFrame(frameList, &buf, nextFrame, data)
-			clientSendLog(windows, buf.Bytes(), time.Now())
-			clientSendTimeSimulation()
-			buf.Reset()
-			nextFrame++
-			count++
+				}
 
-		}
-		checkAck(ackNumber, &base, &nextFrame, timer)
-
-		if timeout {
-			fmt.Println("Timeout")
-			counter := base
-			for counter < nextFrame {
-				sendFrame(frameList, &buf, counter, data)
-				clientSendLog(windows, buf.Bytes(), time.Now())
-				clientSendTimeSimulation()
-				buf.Reset()
-				counter++
-				checkAck(ackNumber, &base, &nextFrame, timer)
 			}
-			timeout = false
+		// Doesn't received anything
+		default:
+			// wait for 3 time to receive data
+			failed++
+			// if after 6 time nothing happened, means that the link was terminated...!
+			// end * failed = max number of failure
+			if end > 1{
+				wg.Done()
+			}
+			if failed > 3 {
+				// make client to send last frame again.
+				ackNumber <- nextFrame - 1
+				_, _ = timeoutColor.Printf("Server:\t Send Ack")
+				failed = 0
+				end++
+			}
+			_, _ = timeoutColor.Printf("Reciever:\n\tNo Message\n")
+			time.Sleep(1 * time.Second)
 		}
 
 	}
-	wg.Done()
-	wg.Wait()
-	close(data)
-	close(ackNumber)
-	done <- true
-
-}
-func checkAck(ackNumber chan int, base *int, nextFrame *int, timer *time.Timer) {
-	select {
-	case number := <-ackNumber:
-		*base = number + 1
-		if *base == *nextFrame {
-			timer.Stop()
-			timeout = false
-		} else {
-			timer.Reset(2* time.Second)
-			go func() {
-				<-timer.C
-				timeout = true
-			}()
-		}
-	default:
-		time.Sleep(1 * time.Second)
-
-	}
-}
-
-func createFrame(message []byte, fs int) []byte {
-	buffer := make([]byte, fs)
-	if len(message) < fs {
-		for i, b := range message {
-			buffer[i] = b
-		}
-	} else {
-		for i, b := range message[0 : fs-1] {
-			buffer[i] = b
-		}
-	}
-	return buffer
-}
-
-func sendFrame(frameList *arraylist.List, buf *bytes.Buffer, nextFrame int, data chan []byte) {
-	enc := gob.NewEncoder(buf)
-	key, _ := frameList.Get(nextFrame)
-	err := enc.Encode(key)
-	if err != nil {
-		panic(err)
-	}
-	//Send data on channel
-	data <- buf.Bytes()
-}
-
-func clientSendLog(windows int, buffer []byte, t time.Time) {
-	_, _ = clientColor.Printf("Transmitter: \tFrame %d Sent:%s %s \n", int(buffer[len(buffer)-1])%windows, buffer[1:len(buffer)-1], t)
-}
-func clientSendTimeSimulation() {
-	time.Sleep(time.Duration(propagation) * time.Millisecond)
-	time.Sleep(time.Duration(tf) * time.Millisecond)
-}
-func createArrayOfFrames(fs int) *arraylist.List {
-
-	frameList := arraylist.New()
-	nextFrame := 0
-	messageInByte := []byte(messages)
-	buffer := make([]byte, fs)
-	for len(messageInByte) != 0 {
-		buffer = createFrame(messageInByte, fs)
-		// Add Number
-		buffer[len(buffer)-1] = byte(nextFrame)
-
-		// Omit last value that was sent
-		if len(messageInByte) > fs {
-			messageInByte = messageInByte[fs-2:]
-		} else {
-			messageInByte = nil
-		}
-		frameList.Add(buffer)
-		nextFrame++
-
-	}
-	return frameList
 
 }
